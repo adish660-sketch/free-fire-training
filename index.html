@@ -1,34 +1,134 @@
+
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
-<meta name="viewport" content="width=device-width">
-<title>Training Mod</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>FF REAL BATTLE</title>
 <style>
-body{margin:0;background:#111;color:#fff;font-family:Arial}
-#menu{position:fixed;top:10px;left:10px;background:#222;padding:12px;border-radius:12px;width:180px;z-index:10}
-button{width:100%;margin:4px 0;padding:8px;background:#00ff88;border:0;border-radius:6px;font-weight:bold}
-#game{width:100vw;height:100vh;background:#2a2a2a;position:relative;overflow:hidden}
-.bot{width:50px;height:50px;background:red;border-radius:50%;position:absolute;display:flex;align-items:center;justify-content:center}
+*{margin:0;padding:0;box-sizing:border-box;touch-action:none;user-select:none}
+body{background:#2d5a27;overflow:hidden;font-family:Arial}
+#canvas{width:100vw;height:100vh;display:block;background:radial-gradient(#4a8a3a,#2d5a27)}
+#ui{position:fixed;top:0;left:0;width:100%;padding:10px;display:flex;justify-content:space-between;color:white;font-weight:bold;z-index:10;text-shadow:1px 1px 2px black}
+#joystick{position:fixed;bottom:30px;left:20px;width:120px;height:120px;background:rgba(255,255,255,0.15);border-radius:50%;z-index:10;border:2px solid rgba(255,255,255,0.3)}
+#stick{position:absolute;top:35px;left:35px;width:50px;height:50px;background:rgba(255,255,255,0.8);border-radius:50%}
+#fire{position:fixed;bottom:40px;right:30px;width:90px;height:90px;background:radial-gradient(#ff4444,#990000);border-radius:50%;z-index:10;display:flex;align-items:center;justify-content:center;color:white;font-weight:bold;font-size:18px;border:3px solid white;box-shadow:0 0 15px red}
+#hp{width:120px;height:15px;background:rgba(0,0,0,0.5);border-radius:10px;overflow:hidden;border:1px solid white}
+#hpFill{height:100%;background:linear-gradient(90deg,#00ff00,#88ff00);width:100%;transition:0.2s}
 </style>
 </head>
 <body>
-<div id="menu">
-<h3>MOD MENU</h3>
-<button onclick="spawn()">+ Бот</button>
-<button onclick="clearB()">Очистить</button>
-<p>Ботов: <span id="c">0</span></p>
+<div id="ui">
+<div><div id="hp"><div id="hpFill"></div></div><div style="margin-top:5px">❤️ HP</div></div>
+<div style="text-align:center">УБИТО: <span id="kills" style="font-size:22px;color:yellow">0</span><br><span id="ammo">∞ патронов</span></div>
+<div style="text-align:right"><button onclick="addBot()" style="padding:8px 15px;border-radius:10px;border:0;background:#00ff88;font-weight:bold">+ БОТ</button><br><div style="margin-top:5px">Ботов: <span id="bc">0</span></div></div>
 </div>
-<div id="game"></div>
+<div id="joystick"><div id="stick"></div></div>
+<div id="fire">FIRE</div>
+<canvas id="canvas"></canvas>
 <script>
-let count=0;
-function spawn(){
-let b=document.createElement('div');b.className='bot';b.innerText='BOT';
-b.style.left=Math.random()*70+'%';b.style.top=Math.random()*70+'%';
-b.onclick=()=>{b.remove();count--;document.getElementById('c').innerText=count}
-document.getElementById('game').appendChild(b);count++;
-document.getElementById('c').innerText=count;
+const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d');
+function resize(){canvas.width=innerWidth;canvas.height=innerHeight} resize(); window.onresize=resize;
+let player={x:innerWidth/2,y:innerHeight/2,r:18,hp:100,angle:0}, kills=0;
+let bots=[], bullets=[], eBullets=[], keys={x:0,y:0};
+let firing=false;
+
+function addBot(){
+ bots.push({x:Math.random()*canvas.width,y:Math.random()*canvas.height,r:18,hp:50,lastShot:0});
+ updateCount();
 }
-function clearB(){document.querySelectorAll('.bot').forEach(b=>b.remove());count=0;document.getElementById('c').innerText=0}
+function updateCount(){document.getElementById('bc').innerText=bots.length}
+
+let joy=document.getElementById('joystick'), stick=document.getElementById('stick'), dragging=false;
+joy.addEventListener('touchstart',e=>{dragging=true});
+window.addEventListener('touchmove',e=>{
+ if(!dragging) return;
+ let t=e.touches[0]; if(!t) return;
+ // find if touch is on joystick
+ let rect=joy.getBoundingClientRect();
+ let cx=rect.left+60, cy=rect.top+60;
+ let dx=t.clientX-cx, dy=t.clientY-cy;
+ let dist=Math.sqrt(dx*dx+dy*dy);
+ if(dist>50){dx=dx/dist*50; dy=dy/dist*50;}
+ stick.style.transform=`translate(${dx}px,${dy}px)`;
+ keys.x=dx/50; keys.y=dy/50;
+},{passive:false});
+window.addEventListener('touchend',()=>{dragging=false; stick.style.transform='translate(0,0)'; keys.x=0;keys.y=0;});
+
+let fireBtn=document.getElementById('fire');
+fireBtn.addEventListener('touchstart',e=>{e.preventDefault(); firing=true;},{passive:false});
+fireBtn.addEventListener('touchend',()=>firing=false);
+fireBtn.addEventListener('mousedown',()=>firing=true);
+window.addEventListener('mouseup',()=>firing=false);
+
+let lastFire=0;
+function shoot(){
+ let now=Date.now(); if(now-lastFire<150) return; lastFire=now;
+ let angle=player.angle;
+ bullets.push({x:player.x+Math.cos(angle)*25,y:player.y+Math.sin(angle)*25,vx:Math.cos(angle)*12,vy:Math.sin(angle)*12,life:60});
+ if(navigator.vibrate) navigator.vibrate(30);
+}
+
+function loop(){
+ // move player
+ player.x+=keys.x*5; player.y+=keys.y*5;
+ if(keys.x||keys.y) player.angle=Math.atan2(keys.y,keys.x);
+ player.x=Math.max(player.r,Math.min(canvas.width-player.r,player.x));
+ player.y=Math.max(player.r,Math.min(canvas.height-player.r,player.y));
+ if(firing) shoot();
+
+ // bots AI
+ bots.forEach(b=>{
+   let dx=player.x-b.x, dy=player.y-b.y, d=Math.sqrt(dx*dx+dy*dy);
+   if(d>40){b.x+=dx/d*1.2; b.y+=dy/d*1.2;}
+   b.angle=Math.atan2(dy,dx);
+   if(d<300 && Date.now()-b.lastShot>900){eBullets.push({x:b.x,y:b.y,vx:dx/d*6,vy:dy/d*6}); b.lastShot=Date.now();}
+ });
+
+ // bullets
+ bullets=bullets.filter(b=>{
+   b.x+=b.vx; b.y+=b.vy; b.life--;
+   let hit=false;
+   bots.forEach((bot,i)=>{
+     if(Math.hypot(b.x-bot.x,b.y-bot.y)<bot.r+5){bot.hp-=25; hit=true; if(bot.hp<=0){bots.splice(i,1); kills++; updateCount(); document.getElementById('kills').innerText=kills;} }
+   });
+   return b.life>0 &&!hit && b.x>0 && b.x<canvas.width && b.y>0 && b.y<canvas.height;
+ });
+ eBullets=eBullets.filter(b=>{
+   b.x+=b.vx; b.y+=b.vy;
+   if(Math.hypot(b.x-player.x,b.y-player.y)<player.r+5){player.hp-=8; document.getElementById('hpFill').style.width=player.hp+'%'; if(player.hp<=0){alert('ТЫ ПОГИБ! Убито: '+kills); player.hp=100; kills=0; bots=[]; document.getElementById('kills').innerText=0; document.getElementById('hpFill').style.width='100%'; addBot(); addBot();} return false;}
+   return b.x>0 && b.x<canvas.width && b.y>0 && b.y<canvas.height;
+ });
+
+ // draw
+ ctx.clearRect(0,0,canvas.width,canvas.height);
+ // ground
+ ctx.fillStyle='#4a8a3a'; ctx.fillRect(0,0,canvas.width,canvas.height);
+ ctx.fillStyle='rgba(0,0,0,0.1)'; for(let i=0;i<20;i++){ctx.fillRect(Math.random()*canvas.width,Math.random()*canvas.height,30,30)}
+
+ // bullets
+ ctx.fillStyle='yellow'; bullets.forEach(b=>{ctx.beginPath();ctx.arc(b.x,b.y,4,0,Math.PI*2);ctx.fill();});
+ ctx.fillStyle='orange'; eBullets.forEach(b=>{ctx.beginPath();ctx.arc(b.x,b.y,4,0,Math.PI*2);ctx.fill();});
+
+ // player
+ ctx.save(); ctx.translate(player.x,player.y); ctx.rotate(player.angle);
+ ctx.fillStyle='#0088ff'; ctx.beginPath(); ctx.arc(0,0,player.r,0,Math.PI*2); ctx.fill();
+ ctx.fillStyle='#0044aa'; ctx.fillRect(10,-4,20,8); // gun
+ ctx.fillStyle='white'; ctx.font='12px Arial'; ctx.fillText('YOU',-15,5);
+ ctx.restore();
+
+ // bots
+ bots.forEach(b=>{
+   ctx.save(); ctx.translate(b.x,b.y); ctx.rotate(b.angle||0);
+   ctx.fillStyle='red'; ctx.beginPath(); ctx.arc(0,0,b.r,0,Math.PI*2); ctx.fill();
+   ctx.fillStyle='black'; ctx.fillRect(8,-3,15,6);
+   ctx.restore();
+   ctx.fillStyle='red'; ctx.fillRect(b.x-15,b.y-b.r-10,b.hp/50*30,5);
+ });
+
+ requestAnimationFrame(loop);
+}
+addBot(); addBot(); addBot(); loop();
 </script>
 </body>
 </html>
